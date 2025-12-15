@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Shield,
@@ -8,6 +9,7 @@ import {
   ArrowDownRight,
   Activity,
   Lock,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -24,8 +26,11 @@ import {
   Pie,
   Cell,
 } from "recharts";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
-const trustScoreData = [
+// Demo data fallback
+const demoTrustScoreData = [
   { month: "Jan", score: 720 },
   { month: "Feb", score: 735 },
   { month: "Mar", score: 728 },
@@ -35,7 +40,7 @@ const trustScoreData = [
   { month: "Jul", score: 785 },
 ];
 
-const verificationData = [
+const demoVerificationData = [
   { month: "Jan", verified: 12, pending: 3 },
   { month: "Feb", verified: 18, pending: 2 },
   { month: "Mar", verified: 15, pending: 4 },
@@ -45,48 +50,13 @@ const verificationData = [
   { month: "Jul", verified: 32, pending: 2 },
 ];
 
-const consentDistribution = [
+const demoConsentDistribution = [
   { name: "Active", value: 45, color: "hsl(185, 80%, 50%)" },
   { name: "Pending", value: 12, color: "hsl(45, 90%, 50%)" },
   { name: "Revoked", value: 8, color: "hsl(0, 70%, 50%)" },
 ];
 
-const stats = [
-  {
-    title: "Trust Score",
-    value: "785",
-    change: "+12",
-    trend: "up",
-    icon: Shield,
-    description: "Encrypted global score",
-  },
-  {
-    title: "Verifications",
-    value: "152",
-    change: "+8",
-    trend: "up",
-    icon: CheckCircle2,
-    description: "This month",
-  },
-  {
-    title: "Connected Banks",
-    value: "7",
-    change: "+2",
-    trend: "up",
-    icon: Building2,
-    description: "Active connections",
-  },
-  {
-    title: "Privacy Score",
-    value: "98%",
-    change: "+3%",
-    trend: "up",
-    icon: Lock,
-    description: "Data protection level",
-  },
-];
-
-const recentActivity = [
+const demoRecentActivity = [
   { action: "Credit verification", institution: "Global Bank UK", time: "2 hours ago", status: "success" },
   { action: "Consent granted", institution: "FinTech Partners", time: "5 hours ago", status: "success" },
   { action: "Identity refresh", institution: "System", time: "1 day ago", status: "success" },
@@ -94,6 +64,151 @@ const recentActivity = [
 ];
 
 const DashboardOverview = () => {
+  const { user } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
+  const [trustScore, setTrustScore] = useState(750);
+  const [verificationsCount, setVerificationsCount] = useState(0);
+  const [institutionsCount, setInstitutionsCount] = useState(0);
+  const [consentsCount, setConsentsCount] = useState(0);
+  const [recentActivity, setRecentActivity] = useState(demoRecentActivity);
+  const [consentDistribution, setConsentDistribution] = useState(demoConsentDistribution);
+
+  useEffect(() => {
+    if (user) {
+      fetchUserData();
+    } else {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  const fetchUserData = async () => {
+    try {
+      // Fetch profile trust score
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("trust_score")
+        .eq("user_id", user?.id)
+        .maybeSingle();
+      
+      if (profile?.trust_score) {
+        setTrustScore(profile.trust_score);
+      }
+
+      // Fetch verifications count
+      const { count: verCount } = await supabase
+        .from("verification_history")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user?.id);
+      
+      setVerificationsCount(verCount || 0);
+
+      // Fetch institutions count
+      const { count: instCount } = await supabase
+        .from("connected_institutions")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user?.id);
+      
+      setInstitutionsCount(instCount || 0);
+
+      // Fetch consents
+      const { data: consents } = await supabase
+        .from("consents")
+        .select("status")
+        .eq("user_id", user?.id);
+
+      if (consents && consents.length > 0) {
+        const active = consents.filter(c => c.status === "active").length;
+        const pending = consents.filter(c => c.status === "pending").length;
+        const revoked = consents.filter(c => c.status === "revoked").length;
+        setConsentsCount(active + pending);
+        setConsentDistribution([
+          { name: "Active", value: active || 1, color: "hsl(185, 80%, 50%)" },
+          { name: "Pending", value: pending || 0, color: "hsl(45, 90%, 50%)" },
+          { name: "Revoked", value: revoked || 0, color: "hsl(0, 70%, 50%)" },
+        ]);
+      }
+
+      // Fetch recent verifications as activity
+      const { data: verifications } = await supabase
+        .from("verification_history")
+        .select("*")
+        .eq("user_id", user?.id)
+        .order("created_at", { ascending: false })
+        .limit(4);
+
+      if (verifications && verifications.length > 0) {
+        const mappedActivity = verifications.map(v => ({
+          action: v.verification_type,
+          institution: v.institution_name,
+          time: formatTimeAgo(new Date(v.created_at)),
+          status: v.status === "verified" ? "success" : "pending",
+        }));
+        setRecentActivity(mappedActivity.length > 0 ? mappedActivity : demoRecentActivity);
+      }
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const formatTimeAgo = (date: Date) => {
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
+    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    return "Just now";
+  };
+
+  const stats = [
+    {
+      title: "Trust Score",
+      value: trustScore.toString(),
+      change: "+12",
+      trend: "up" as const,
+      icon: Shield,
+      description: "Encrypted global score",
+    },
+    {
+      title: "Verifications",
+      value: verificationsCount > 0 ? verificationsCount.toString() : "0",
+      change: verificationsCount > 0 ? `+${Math.min(verificationsCount, 8)}` : "New",
+      trend: "up" as const,
+      icon: CheckCircle2,
+      description: verificationsCount > 0 ? "Total verifications" : "Start verifying",
+    },
+    {
+      title: "Connected Banks",
+      value: institutionsCount > 0 ? institutionsCount.toString() : "0",
+      change: institutionsCount > 0 ? `+${institutionsCount}` : "Add banks",
+      trend: "up" as const,
+      icon: Building2,
+      description: institutionsCount > 0 ? "Active connections" : "Connect institutions",
+    },
+    {
+      title: "Privacy Score",
+      value: "98%",
+      change: "+3%",
+      trend: "up" as const,
+      icon: Lock,
+      description: "Data protection level",
+    },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       {/* Stats Grid */}
@@ -153,7 +268,7 @@ const DashboardOverview = () => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={trustScoreData}>
+                <AreaChart data={demoTrustScoreData}>
                   <defs>
                     <linearGradient id="trustGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="hsl(185, 80%, 50%)" stopOpacity={0.3} />
@@ -198,7 +313,7 @@ const DashboardOverview = () => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={verificationData}>
+                <BarChart data={demoVerificationData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(222, 30%, 18%)" />
                   <XAxis dataKey="month" stroke="hsl(215, 20%, 55%)" fontSize={12} />
                   <YAxis stroke="hsl(215, 20%, 55%)" fontSize={12} />
