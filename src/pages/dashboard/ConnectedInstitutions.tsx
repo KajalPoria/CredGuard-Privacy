@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Building2,
   Globe,
@@ -12,11 +12,17 @@ import {
   Shield,
   Activity,
   TrendingUp,
+  Download,
+  Loader2,
+  X,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
   DialogContent,
@@ -110,9 +116,13 @@ const trustLevelConfig = {
 };
 
 const ConnectedInstitutions = () => {
+  const { user } = useAuth();
   const [institutions, setInstitutions] = useState<Institution[]>(initialInstitutions);
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [selectedInstitution, setSelectedInstitution] = useState<Institution | null>(null);
 
   const handleDisconnect = (institutionId: string) => {
     setInstitutions((prev) =>
@@ -142,6 +152,68 @@ const ConnectedInstitutions = () => {
       title: "Connection initiated",
       description: `${name} will be connected once they verify your identity.`,
     });
+  };
+
+  const handleImportMetrics = async (institution: Institution) => {
+    setSelectedInstitution(institution);
+    setShowImportModal(true);
+  };
+
+  const confirmImportMetrics = async () => {
+    if (!selectedInstitution) return;
+    
+    setIsImporting(true);
+    
+    // Simulate importing behavioral metrics from institution
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    try {
+      // Generate realistic metrics based on institution data
+      const importedMetrics = {
+        repayment_discipline: Math.min(100, 75 + Math.floor(Math.random() * 20)),
+        spending_stability: Math.min(100, 70 + Math.floor(Math.random() * 25)),
+        employment_consistency: Math.min(100, 80 + Math.floor(Math.random() * 15)),
+        income_regularity: Math.min(100, 78 + Math.floor(Math.random() * 18)),
+      };
+      
+      // Update encrypted_identities with imported metrics
+      const { error } = await supabase
+        .from("encrypted_identities")
+        .update({ behavioral_metrics: importedMetrics })
+        .eq("user_id", user?.id);
+
+      if (error) throw error;
+
+      // Calculate and update trust score
+      const avgScore = Math.round(
+        (importedMetrics.repayment_discipline + 
+         importedMetrics.spending_stability + 
+         importedMetrics.employment_consistency + 
+         importedMetrics.income_regularity) / 4
+      );
+      const newTrustScore = 600 + Math.round(avgScore * 2);
+      
+      await supabase
+        .from("profiles")
+        .update({ trust_score: newTrustScore })
+        .eq("user_id", user?.id);
+
+      toast({
+        title: "Metrics Imported",
+        description: `Successfully imported behavioral data from ${selectedInstitution.name}. Trust score updated to ${newTrustScore}.`,
+      });
+      
+      setShowImportModal(false);
+      setSelectedInstitution(null);
+    } catch (error) {
+      toast({
+        title: "Import Failed",
+        description: "Failed to import metrics. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const filteredInstitutions = institutions.filter(
@@ -313,17 +385,28 @@ const ConnectedInstitutions = () => {
                       )}
                       <span className="text-sm font-medium capitalize">{institution.status}</span>
                     </div>
-                    {institution.status === "connected" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDisconnect(institution.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Unlink className="w-4 h-4 mr-2" />
-                        Disconnect
-                      </Button>
-                    )}
+                    <div className="flex gap-2">
+                      {institution.status === "connected" && (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleImportMetrics(institution)}
+                          >
+                            <Download className="w-4 h-4 mr-1" />
+                            Import
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDisconnect(institution.id)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Unlink className="w-4 h-4" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -343,6 +426,83 @@ const ConnectedInstitutions = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Import Metrics Modal */}
+      <AnimatePresence>
+        {showImportModal && selectedInstitution && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+            onClick={() => !isImporting && setShowImportModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Download className="w-6 h-6 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-foreground">Import Metrics</h2>
+                    <p className="text-sm text-muted-foreground">From {selectedInstitution.name}</p>
+                  </div>
+                </div>
+                {!isImporting && (
+                  <Button variant="ghost" size="icon" onClick={() => setShowImportModal(false)}>
+                    <X className="w-5 h-5" />
+                  </Button>
+                )}
+              </div>
+
+              <div className="p-6 space-y-4">
+                <p className="text-muted-foreground">
+                  This will import your financial behavioral data from {selectedInstitution.name} and update your trust score.
+                </p>
+                <div className="p-4 rounded-xl bg-secondary/50 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-success" />
+                    <span>Repayment history</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-success" />
+                    <span>Spending patterns</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-success" />
+                    <span>Income regularity</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-border flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setShowImportModal(false)} disabled={isImporting}>
+                  Cancel
+                </Button>
+                <Button onClick={confirmImportMetrics} disabled={isImporting}>
+                  {isImporting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    <>
+                      <ArrowRight className="w-4 h-4 mr-2" />
+                      Import Now
+                    </>
+                  )}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
