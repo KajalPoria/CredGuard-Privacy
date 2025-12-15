@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield,
   TrendingUp,
@@ -10,8 +11,18 @@ import {
   Activity,
   Lock,
   Loader2,
+  X,
+  Eye,
+  EyeOff,
+  Copy,
+  Save,
+  Fingerprint,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import {
   AreaChart,
   Area,
@@ -28,6 +39,7 @@ import {
 } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 // Demo data fallback
 const demoTrustScoreData = [
@@ -64,6 +76,7 @@ const demoRecentActivity = [
 ];
 
 const DashboardOverview = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [trustScore, setTrustScore] = useState(750);
@@ -72,6 +85,19 @@ const DashboardOverview = () => {
   const [consentsCount, setConsentsCount] = useState(0);
   const [recentActivity, setRecentActivity] = useState(demoRecentActivity);
   const [consentDistribution, setConsentDistribution] = useState(demoConsentDistribution);
+  
+  // Modal states
+  const [showIdentityModal, setShowIdentityModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [encryptedVector, setEncryptedVector] = useState("");
+  const [showVector, setShowVector] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [behavioralMetrics, setBehavioralMetrics] = useState({
+    repayment_discipline: 85,
+    spending_stability: 80,
+    employment_consistency: 90,
+    income_regularity: 82,
+  });
 
   useEffect(() => {
     if (user) {
@@ -92,6 +118,20 @@ const DashboardOverview = () => {
       
       if (profile?.trust_score) {
         setTrustScore(profile.trust_score);
+      }
+
+      // Fetch encrypted identity
+      const { data: identity } = await supabase
+        .from("encrypted_identities")
+        .select("encrypted_vector, behavioral_metrics")
+        .eq("user_id", user?.id)
+        .maybeSingle();
+      
+      if (identity) {
+        setEncryptedVector(identity.encrypted_vector || "");
+        if (identity.behavioral_metrics) {
+          setBehavioralMetrics(identity.behavioral_metrics as typeof behavioralMetrics);
+        }
       }
 
       // Fetch verifications count
@@ -149,6 +189,69 @@ const DashboardOverview = () => {
       console.error("Error fetching dashboard data:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveMetrics = async () => {
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from("encrypted_identities")
+        .update({ behavioral_metrics: behavioralMetrics })
+        .eq("user_id", user?.id);
+
+      if (error) throw error;
+
+      // Recalculate trust score
+      const avgScore = Math.round(
+        (behavioralMetrics.repayment_discipline + 
+         behavioralMetrics.spending_stability + 
+         behavioralMetrics.employment_consistency + 
+         behavioralMetrics.income_regularity) / 4
+      );
+      const newTrustScore = 600 + Math.round(avgScore * 2);
+      
+      await supabase
+        .from("profiles")
+        .update({ trust_score: newTrustScore })
+        .eq("user_id", user?.id);
+
+      setTrustScore(newTrustScore);
+      toast({
+        title: "Metrics Updated",
+        description: `Your behavioral metrics have been saved. New trust score: ${newTrustScore}`,
+      });
+      setShowIdentityModal(false);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save metrics. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCopyVector = () => {
+    navigator.clipboard.writeText(encryptedVector);
+    toast({ title: "Copied", description: "Encrypted vector copied to clipboard." });
+  };
+
+  const handleStatClick = (statTitle: string) => {
+    switch (statTitle) {
+      case "Trust Score":
+        setShowIdentityModal(true);
+        break;
+      case "Verifications":
+        navigate("/dashboard/history");
+        break;
+      case "Connected Banks":
+        navigate("/dashboard/institutions");
+        break;
+      case "Privacy Score":
+        setShowPrivacyModal(true);
+        break;
     }
   };
 
@@ -222,10 +325,13 @@ const DashboardOverview = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
             >
-              <Card className="bg-gradient-card border-border hover:border-primary/50 transition-smooth">
+              <Card 
+                className="bg-gradient-card border-border hover:border-primary/50 transition-smooth cursor-pointer group"
+                onClick={() => handleStatClick(stat.title)}
+              >
                 <CardContent className="p-6">
                   <div className="flex items-start justify-between mb-4">
-                    <div className="p-2 rounded-lg bg-primary/10">
+                    <div className="p-2 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
                       <Icon className="w-5 h-5 text-primary" />
                     </div>
                     <div className={`flex items-center gap-1 text-sm ${
@@ -239,11 +345,14 @@ const DashboardOverview = () => {
                       {stat.change}
                     </div>
                   </div>
-                  <div className="text-3xl font-bold text-foreground mb-1">
+                  <div className="text-3xl font-bold text-foreground mb-1 group-hover:text-primary transition-colors">
                     {stat.value}
                   </div>
                   <div className="text-sm text-muted-foreground">{stat.title}</div>
                   <div className="text-xs text-muted-foreground/70 mt-1">{stat.description}</div>
+                  <div className="text-xs text-primary mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Click to view details →
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>
@@ -419,6 +528,215 @@ const DashboardOverview = () => {
           </Card>
         </motion.div>
       </div>
+
+      {/* Identity & Behavioral Metrics Modal */}
+      <AnimatePresence>
+        {showIdentityModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+            onClick={() => setShowIdentityModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Fingerprint className="w-6 h-6 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-foreground">Encrypted Identity</h2>
+                    <p className="text-sm text-muted-foreground">View and update your behavioral metrics</p>
+                  </div>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setShowIdentityModal(false)}>
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Encrypted Vector Section */}
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Encrypted Vector</Label>
+                  <div className="flex items-center gap-2 p-4 rounded-xl bg-secondary/50 font-mono text-sm">
+                    <span className="flex-1 truncate text-muted-foreground">
+                      {showVector ? encryptedVector : (encryptedVector?.slice(0, 30) + "...")}
+                    </span>
+                    <Button variant="ghost" size="icon" onClick={() => setShowVector(!showVector)}>
+                      {showVector ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={handleCopyVector}>
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    This is your unique encrypted identity vector stored on CyborgDB
+                  </p>
+                </div>
+
+                {/* Trust Score Display */}
+                <div className="p-4 rounded-xl bg-gradient-to-r from-primary/10 to-success/10 border border-primary/20">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Current Trust Score</span>
+                    <span className="text-3xl font-bold text-primary">{trustScore}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Based on your behavioral metrics (range: 600-800)
+                  </p>
+                </div>
+
+                {/* Behavioral Metrics Sliders */}
+                <div className="space-y-5">
+                  <h3 className="font-semibold text-foreground">Behavioral Metrics</h3>
+                  
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label>Repayment Discipline</Label>
+                        <span className="text-sm font-medium text-primary">{behavioralMetrics.repayment_discipline}%</span>
+                      </div>
+                      <Slider
+                        value={[behavioralMetrics.repayment_discipline]}
+                        onValueChange={([value]) => setBehavioralMetrics(m => ({ ...m, repayment_discipline: value }))}
+                        max={100}
+                        step={1}
+                        className="cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label>Spending Stability</Label>
+                        <span className="text-sm font-medium text-primary">{behavioralMetrics.spending_stability}%</span>
+                      </div>
+                      <Slider
+                        value={[behavioralMetrics.spending_stability]}
+                        onValueChange={([value]) => setBehavioralMetrics(m => ({ ...m, spending_stability: value }))}
+                        max={100}
+                        step={1}
+                        className="cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label>Employment Consistency</Label>
+                        <span className="text-sm font-medium text-primary">{behavioralMetrics.employment_consistency}%</span>
+                      </div>
+                      <Slider
+                        value={[behavioralMetrics.employment_consistency]}
+                        onValueChange={([value]) => setBehavioralMetrics(m => ({ ...m, employment_consistency: value }))}
+                        max={100}
+                        step={1}
+                        className="cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label>Income Regularity</Label>
+                        <span className="text-sm font-medium text-primary">{behavioralMetrics.income_regularity}%</span>
+                      </div>
+                      <Slider
+                        value={[behavioralMetrics.income_regularity]}
+                        onValueChange={([value]) => setBehavioralMetrics(m => ({ ...m, income_regularity: value }))}
+                        max={100}
+                        step={1}
+                        className="cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-border flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setShowIdentityModal(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveMetrics} disabled={isSaving}>
+                  {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  Save Changes
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Privacy Score Modal */}
+      <AnimatePresence>
+        {showPrivacyModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+            onClick={() => setShowPrivacyModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-success/10">
+                    <Lock className="w-6 h-6 text-success" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-foreground">Privacy Score</h2>
+                    <p className="text-sm text-muted-foreground">Your data protection level</p>
+                  </div>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setShowPrivacyModal(false)}>
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="text-center">
+                  <div className="text-6xl font-bold text-success mb-2">98%</div>
+                  <p className="text-muted-foreground">Excellent Protection</p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                    <span className="text-sm">Zero-Knowledge Proofs</span>
+                    <CheckCircle2 className="w-5 h-5 text-success" />
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                    <span className="text-sm">End-to-End Encryption</span>
+                    <CheckCircle2 className="w-5 h-5 text-success" />
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                    <span className="text-sm">GDPR Compliant</span>
+                    <CheckCircle2 className="w-5 h-5 text-success" />
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                    <span className="text-sm">Decentralized Storage</span>
+                    <CheckCircle2 className="w-5 h-5 text-success" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-border">
+                <Button className="w-full" onClick={() => setShowPrivacyModal(false)}>
+                  Close
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
