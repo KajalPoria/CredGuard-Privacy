@@ -13,6 +13,8 @@ import CreditIdentity from "./pages/dashboard/CreditIdentity";
 import VerificationHistory from "./pages/dashboard/VerificationHistory";
 import ConsentManagement from "./pages/dashboard/ConsentManagement";
 import ConnectedInstitutions from "./pages/dashboard/ConnectedInstitutions";
+import FraudDetection from "./pages/dashboard/FraudDetection";
+import Profile from "./pages/dashboard/Profile";
 
 const queryClient = new QueryClient();
 
@@ -70,6 +72,8 @@ const AppRoutes = () => {
         <Route path="history" element={<VerificationHistory />} />
         <Route path="consent" element={<ConsentManagement />} />
         <Route path="institutions" element={<ConnectedInstitutions />} />
+        <Route path="fraud" element={<FraudDetection />} />
+        <Route path="profile" element={<Profile />} />
       </Route>
       
       <Route path="*" element={<NotFound />} />

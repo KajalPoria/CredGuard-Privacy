@@ -18,6 +18,7 @@ import {
   Home,
   Bell,
   User,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
@@ -25,6 +26,7 @@ import { toast } from "@/hooks/use-toast";
 const navItems = [
   { title: "Overview", url: "/dashboard", icon: BarChart3 },
   { title: "Credit Identity", url: "/dashboard/identity", icon: Fingerprint },
+  { title: "Fraud Detection", url: "/dashboard/fraud", icon: AlertTriangle },
   { title: "Verification History", url: "/dashboard/history", icon: History },
   { title: "Consent Management", url: "/dashboard/consent", icon: Settings },
   { title: "Connected Institutions", url: "/dashboard/institutions", icon: Building2 },
@@ -212,9 +214,12 @@ const DashboardLayout = () => {
               <Bell className="w-5 h-5" />
               <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
             </Button>
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-success flex items-center justify-center">
+            <NavLink
+              to="/dashboard/profile"
+              className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-success flex items-center justify-center cursor-pointer hover:scale-105 transition-transform"
+            >
               <User className="w-5 h-5 text-primary-foreground" />
-            </div>
+            </NavLink>
           </div>
         </header>
 
