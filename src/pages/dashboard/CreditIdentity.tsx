@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Fingerprint,
   Shield,
@@ -13,9 +13,15 @@ import {
   Info,
   Zap,
   Database,
+  Edit3,
+  Save,
+  X,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Slider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -35,6 +41,14 @@ const CreditIdentity = () => {
   const [identity, setIdentity] = useState<EncryptedIdentity | null>(null);
   const [trustScore, setTrustScore] = useState(750);
   const [loadingMessage, setLoadingMessage] = useState("");
+  const [showMetricsModal, setShowMetricsModal] = useState(false);
+  const [isSavingMetrics, setIsSavingMetrics] = useState(false);
+  const [editableMetrics, setEditableMetrics] = useState({
+    repayment_discipline: 85,
+    spending_stability: 80,
+    employment_consistency: 90,
+    income_regularity: 82,
+  });
   const { user, session } = useAuth();
 
   useEffect(() => {
@@ -58,6 +72,9 @@ const CreditIdentity = () => {
         cyborgdb_indexed: identityData.cyborgdb_indexed || false,
         cyborgdb_index_id: identityData.cyborgdb_index_id,
       });
+      if (identityData.behavioral_metrics) {
+        setEditableMetrics(identityData.behavioral_metrics as typeof editableMetrics);
+      }
     }
 
     const { data: profileData } = await supabase
@@ -68,6 +85,56 @@ const CreditIdentity = () => {
 
     if (profileData) {
       setTrustScore(profileData.trust_score || 750);
+    }
+  };
+
+  const handleOpenMetricsModal = () => {
+    if (identity?.behavioral_metrics) {
+      setEditableMetrics(identity.behavioral_metrics as typeof editableMetrics);
+    }
+    setShowMetricsModal(true);
+  };
+
+  const handleSaveMetrics = async () => {
+    setIsSavingMetrics(true);
+    try {
+      const { error } = await supabase
+        .from("encrypted_identities")
+        .update({ behavioral_metrics: editableMetrics })
+        .eq("user_id", user?.id);
+
+      if (error) throw error;
+
+      // Recalculate trust score
+      const avgScore = Math.round(
+        (editableMetrics.repayment_discipline + 
+         editableMetrics.spending_stability + 
+         editableMetrics.employment_consistency + 
+         editableMetrics.income_regularity) / 4
+      );
+      const newTrustScore = 600 + Math.round(avgScore * 2);
+      
+      await supabase
+        .from("profiles")
+        .update({ trust_score: newTrustScore })
+        .eq("user_id", user?.id);
+
+      setTrustScore(newTrustScore);
+      setIdentity(prev => prev ? { ...prev, behavioral_metrics: editableMetrics } : null);
+      
+      toast({
+        title: "Metrics Updated",
+        description: `Your behavioral metrics have been saved. New trust score: ${newTrustScore}`,
+      });
+      setShowMetricsModal(false);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save metrics. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingMetrics(false);
     }
   };
 
@@ -296,8 +363,12 @@ const CreditIdentity = () => {
 
       {/* Metrics */}
       <Card className="bg-gradient-card border-border">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Behavioral Metrics</CardTitle>
+          <Button variant="outline" size="sm" onClick={handleOpenMetricsModal}>
+            <Edit3 className="w-4 h-4 mr-2" />
+            Edit Metrics
+          </Button>
         </CardHeader>
         <CardContent>
           <div className="grid sm:grid-cols-2 gap-6">
@@ -307,13 +378,14 @@ const CreditIdentity = () => {
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.1 }}
-                className="space-y-2"
+                className="space-y-2 cursor-pointer group"
+                onClick={handleOpenMetricsModal}
               >
                 <div className="flex justify-between">
-                  <span className="text-sm font-medium">{metricLabels[key] || key}</span>
+                  <span className="text-sm font-medium group-hover:text-primary transition-colors">{metricLabels[key] || key}</span>
                   <span className="text-sm font-bold text-primary">{value}%</span>
                 </div>
-                <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                <div className="h-2 rounded-full bg-secondary overflow-hidden group-hover:bg-secondary/80 transition-colors">
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${value}%` }}
@@ -321,11 +393,136 @@ const CreditIdentity = () => {
                     className="h-full rounded-full bg-gradient-to-r from-primary to-success"
                   />
                 </div>
+                <div className="text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                  Click to edit →
+                </div>
               </motion.div>
             ))}
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit Metrics Modal */}
+      <AnimatePresence>
+        {showMetricsModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+            onClick={() => setShowMetricsModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-lg bg-card border border-border rounded-2xl shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Edit3 className="w-6 h-6 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-foreground">Edit Behavioral Metrics</h2>
+                    <p className="text-sm text-muted-foreground">Adjust your financial behavior indicators</p>
+                  </div>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setShowMetricsModal(false)}>
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Preview Trust Score */}
+                <div className="p-4 rounded-xl bg-gradient-to-r from-primary/10 to-success/10 border border-primary/20">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Projected Trust Score</span>
+                    <span className="text-2xl font-bold text-primary">
+                      {600 + Math.round(
+                        (editableMetrics.repayment_discipline + 
+                         editableMetrics.spending_stability + 
+                         editableMetrics.employment_consistency + 
+                         editableMetrics.income_regularity) / 4 * 2
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Sliders */}
+                <div className="space-y-5">
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <Label>Income Regularity</Label>
+                      <span className="text-sm font-medium text-primary">{editableMetrics.income_regularity}%</span>
+                    </div>
+                    <Slider
+                      value={[editableMetrics.income_regularity]}
+                      onValueChange={([value]) => setEditableMetrics(m => ({ ...m, income_regularity: value }))}
+                      max={100}
+                      step={1}
+                      className="cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <Label>Spending Stability</Label>
+                      <span className="text-sm font-medium text-primary">{editableMetrics.spending_stability}%</span>
+                    </div>
+                    <Slider
+                      value={[editableMetrics.spending_stability]}
+                      onValueChange={([value]) => setEditableMetrics(m => ({ ...m, spending_stability: value }))}
+                      max={100}
+                      step={1}
+                      className="cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <Label>Repayment Discipline</Label>
+                      <span className="text-sm font-medium text-primary">{editableMetrics.repayment_discipline}%</span>
+                    </div>
+                    <Slider
+                      value={[editableMetrics.repayment_discipline]}
+                      onValueChange={([value]) => setEditableMetrics(m => ({ ...m, repayment_discipline: value }))}
+                      max={100}
+                      step={1}
+                      className="cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <Label>Employment Consistency</Label>
+                      <span className="text-sm font-medium text-primary">{editableMetrics.employment_consistency}%</span>
+                    </div>
+                    <Slider
+                      value={[editableMetrics.employment_consistency]}
+                      onValueChange={([value]) => setEditableMetrics(m => ({ ...m, employment_consistency: value }))}
+                      max={100}
+                      step={1}
+                      className="cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-border flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setShowMetricsModal(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveMetrics} disabled={isSavingMetrics}>
+                  {isSavingMetrics ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  Save Changes
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
