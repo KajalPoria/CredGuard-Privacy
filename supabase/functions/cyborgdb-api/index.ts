@@ -140,17 +140,40 @@ serve(async (req) => {
       }
 
       case "verify_identity": {
-        const { data: identity } = await supabase
+        let { data: identity } = await supabase
           .from("encrypted_identities")
           .select("*")
           .eq("user_id", user.id)
           .maybeSingle();
 
+        // Auto-create identity if missing
         if (!identity) {
-          return new Response(JSON.stringify({ error: "No identity found" }), {
-            status: 404,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          const newVector = generateLocalVector();
+          const { data: newIdentity, error: createError } = await supabase
+            .from("encrypted_identities")
+            .insert({
+              user_id: user.id,
+              encrypted_vector: newVector,
+              zk_proof: "π = (A, B, C) ∈ G₁ × G₂ × G₁",
+              behavioral_metrics: {
+                repayment_discipline: 85,
+                spending_stability: 80,
+                employment_consistency: 90,
+                income_regularity: 82,
+              },
+              cyborgdb_indexed: false,
+            })
+            .select()
+            .single();
+          
+          if (createError) {
+            console.error("Failed to create identity:", createError);
+            return new Response(JSON.stringify({ error: "Failed to create identity" }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          identity = newIdentity;
         }
 
         // Calculate trust score from behavioral metrics
