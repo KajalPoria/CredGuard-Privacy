@@ -19,6 +19,7 @@ import {
   Bell,
   User,
   AlertTriangle,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
@@ -26,6 +27,7 @@ import { toast } from "@/hooks/use-toast";
 const navItems = [
   { title: "Overview", url: "/dashboard", icon: BarChart3 },
   { title: "Credit Identity", url: "/dashboard/identity", icon: Fingerprint },
+  { title: "Loan Application", url: "/dashboard/loan", icon: Wallet },
   { title: "Fraud Detection", url: "/dashboard/fraud", icon: AlertTriangle },
   { title: "Verification History", url: "/dashboard/history", icon: History },
   { title: "Consent Management", url: "/dashboard/consent", icon: Settings },

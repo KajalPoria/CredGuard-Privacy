@@ -15,6 +15,7 @@ import ConsentManagement from "./pages/dashboard/ConsentManagement";
 import ConnectedInstitutions from "./pages/dashboard/ConnectedInstitutions";
 import FraudDetection from "./pages/dashboard/FraudDetection";
 import Profile from "./pages/dashboard/Profile";
+import LoanApplication from "./pages/dashboard/LoanApplication";
 
 const queryClient = new QueryClient();
 
@@ -74,6 +75,7 @@ const AppRoutes = () => {
         <Route path="institutions" element={<ConnectedInstitutions />} />
         <Route path="fraud" element={<FraudDetection />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="loan" element={<LoanApplication />} />
       </Route>
       
       <Route path="*" element={<NotFound />} />
