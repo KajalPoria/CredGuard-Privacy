@@ -38,6 +38,17 @@ interface LoanAssessment {
   reasoning: string[];
 }
 
+interface LoanApplication {
+  id: string;
+  amount: number;
+  purpose: string | null;
+  tenure: number | null;
+  eligibility: string | null;
+  decision_status: string;
+  created_at: string;
+  risk_score: number | null;
+}
+
 interface EncryptedInputs {
   encryptedVector: string;
   trustScore: number;
@@ -60,12 +71,30 @@ const LoanApplication = () => {
   const [step, setStep] = useState<'consent' | 'application' | 'processing' | 'result'>('consent');
   const [processingProgress, setProcessingProgress] = useState(0);
   const [processingStep, setProcessingStep] = useState('');
+  const [loanHistory, setLoanHistory] = useState<LoanApplication[]>([]);
+  const [currentApplicationId, setCurrentApplicationId] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
       fetchEncryptedInputs();
+      fetchLoanHistory();
     }
   }, [user]);
+
+  const fetchLoanHistory = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('loan_applications')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setLoanHistory(data || []);
+    } catch (error) {
+      console.error('Error fetching loan history:', error);
+    }
+  };
 
   const fetchEncryptedInputs = async () => {
     try {
@@ -176,6 +205,28 @@ const LoanApplication = () => {
       setAssessment(assessmentResult);
       setStep('result');
 
+      // Save loan application
+      const { data: loanApp, error: loanError } = await supabase.from('loan_applications').insert({
+        user_id: user?.id,
+        amount: amount,
+        purpose: loanPurpose || null,
+        tenure: loanTenure ? parseInt(loanTenure) : null,
+        status: 'assessed',
+        eligibility: eligibility,
+        recommended_min: assessmentResult.recommendedRange.min,
+        recommended_max: assessmentResult.recommendedRange.max,
+        risk_score: assessmentResult.riskScore,
+        fraud_likelihood: assessmentResult.fraudLikelihood,
+        fairness_score: assessmentResult.fairnessScore,
+        cryptographic_proof: assessmentResult.cryptographicProof,
+        reasoning: assessmentResult.reasoning,
+        decision_status: 'pending'
+      }).select().single();
+
+      if (loanApp) {
+        setCurrentApplicationId(loanApp.id);
+      }
+
       // Log the assessment for audit trail
       await supabase.from('verification_history').insert({
         user_id: user?.id,
@@ -191,6 +242,8 @@ const LoanApplication = () => {
         title: 'Assessment Complete',
         description: `Your loan application has been ${eligibility}`,
       });
+
+      fetchLoanHistory();
     } catch (error) {
       console.error('Assessment error:', error);
       toast({
@@ -220,6 +273,57 @@ const LoanApplication = () => {
     setLoanAmount('');
     setLoanPurpose('');
     setLoanTenure('');
+    setCurrentApplicationId(null);
+  };
+
+  const handleAcceptOffer = async () => {
+    if (!currentApplicationId) return;
+    
+    try {
+      await supabase
+        .from('loan_applications')
+        .update({ decision_status: 'accepted' })
+        .eq('id', currentApplicationId);
+      
+      toast({
+        title: 'Offer Accepted',
+        description: 'Your loan application has been accepted. You will be contacted shortly.',
+      });
+      
+      fetchLoanHistory();
+      resetApplication();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to accept offer. Please try again.',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleRejectOffer = async () => {
+    if (!currentApplicationId) return;
+    
+    try {
+      await supabase
+        .from('loan_applications')
+        .update({ decision_status: 'rejected' })
+        .eq('id', currentApplicationId);
+      
+      toast({
+        title: 'Offer Declined',
+        description: 'You have declined this loan offer.',
+      });
+      
+      fetchLoanHistory();
+      resetApplication();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to decline offer. Please try again.',
+        variant: 'destructive'
+      });
+    }
   };
 
   const formatCurrency = (value: number) => {
@@ -624,10 +728,87 @@ const LoanApplication = () => {
             </CardContent>
           </Card>
 
-          <Button onClick={resetApplication} variant="outline" className="w-full">
-            Start New Application
-          </Button>
+          {/* Action Buttons */}
+          {assessment.eligibility !== 'rejected' && (
+            <div className="flex gap-4">
+              <Button onClick={handleAcceptOffer} className="flex-1 bg-emerald-600 hover:bg-emerald-700">
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Accept Offer
+              </Button>
+              <Button onClick={handleRejectOffer} variant="outline" className="flex-1">
+                <XCircle className="w-4 h-4 mr-2" />
+                Decline Offer
+              </Button>
+            </div>
+          )}
+
+          {assessment.eligibility === 'rejected' && (
+            <Button onClick={resetApplication} variant="outline" className="w-full">
+              Start New Application
+            </Button>
+          )}
         </div>
+      )}
+
+      {/* Loan History Section */}
+      {loanHistory.length > 0 && step === 'consent' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-primary" />
+              Application History
+            </CardTitle>
+            <CardDescription>
+              Your previous loan applications
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {loanHistory.map((loan) => (
+                <div 
+                  key={loan.id} 
+                  className="flex items-center justify-between p-4 rounded-lg bg-muted/50 border border-border"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      loan.eligibility === 'approved' 
+                        ? 'bg-emerald-500/20' 
+                        : loan.eligibility === 'conditional'
+                        ? 'bg-yellow-500/20'
+                        : 'bg-destructive/20'
+                    }`}>
+                      {loan.eligibility === 'approved' ? (
+                        <CheckCircle className="w-5 h-5 text-emerald-500" />
+                      ) : loan.eligibility === 'conditional' ? (
+                        <AlertTriangle className="w-5 h-5 text-yellow-500" />
+                      ) : (
+                        <XCircle className="w-5 h-5 text-destructive" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-medium">{formatCurrency(loan.amount)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {loan.purpose ? loan.purpose.charAt(0).toUpperCase() + loan.purpose.slice(1) : 'General'} • {new Date(loan.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge variant={
+                      loan.decision_status === 'accepted' ? 'default' :
+                      loan.decision_status === 'rejected' ? 'destructive' : 'secondary'
+                    }>
+                      {loan.decision_status === 'accepted' ? 'Accepted' :
+                       loan.decision_status === 'rejected' ? 'Declined' : 'Pending'}
+                    </Badge>
+                    <Badge variant="outline" className="capitalize">
+                      {loan.eligibility}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
