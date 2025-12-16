@@ -17,6 +17,7 @@ import {
   Copy,
   Save,
   Fingerprint,
+  Wallet,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -83,6 +84,7 @@ const DashboardOverview = () => {
   const [verificationsCount, setVerificationsCount] = useState(0);
   const [institutionsCount, setInstitutionsCount] = useState(0);
   const [consentsCount, setConsentsCount] = useState(0);
+  const [loanApplicationsCount, setLoanApplicationsCount] = useState(0);
   const [recentActivity, setRecentActivity] = useState(demoRecentActivity);
   const [consentDistribution, setConsentDistribution] = useState(demoConsentDistribution);
   
@@ -168,7 +170,15 @@ const DashboardOverview = () => {
         ]);
       }
 
-      // Fetch recent verifications as activity
+      // Fetch loan applications count
+      const { count: loanCount } = await supabase
+        .from("loan_applications")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user?.id);
+      
+      setLoanApplicationsCount(loanCount || 0);
+
+      // Fetch recent verifications and loan applications as activity
       const { data: verifications } = await supabase
         .from("verification_history")
         .select("*")
@@ -176,14 +186,42 @@ const DashboardOverview = () => {
         .order("created_at", { ascending: false })
         .limit(4);
 
-      if (verifications && verifications.length > 0) {
-        const mappedActivity = verifications.map(v => ({
-          action: v.verification_type,
-          institution: v.institution_name,
-          time: formatTimeAgo(new Date(v.created_at)),
-          status: v.status === "verified" ? "success" : "pending",
-        }));
-        setRecentActivity(mappedActivity.length > 0 ? mappedActivity : demoRecentActivity);
+      const { data: loanApps } = await supabase
+        .from("loan_applications")
+        .select("*")
+        .eq("user_id", user?.id)
+        .order("created_at", { ascending: false })
+        .limit(4);
+
+      const allActivity: typeof demoRecentActivity = [];
+      
+      if (verifications) {
+        verifications.forEach(v => {
+          allActivity.push({
+            action: v.verification_type,
+            institution: v.institution_name,
+            time: formatTimeAgo(new Date(v.created_at)),
+            status: v.status === "verified" || v.status === "approved" ? "success" : "pending",
+          });
+        });
+      }
+
+      if (loanApps) {
+        loanApps.forEach(l => {
+          allActivity.push({
+            action: `Loan Application (${l.eligibility || 'pending'})`,
+            institution: "CREDGUARD Network",
+            time: formatTimeAgo(new Date(l.created_at)),
+            status: l.decision_status === "accepted" ? "success" : l.decision_status === "rejected" ? "pending" : "pending",
+          });
+        });
+      }
+
+      // Sort by time and take latest 4
+      if (allActivity.length > 0) {
+        setRecentActivity(allActivity.slice(0, 4));
+      } else {
+        setRecentActivity(demoRecentActivity);
       }
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
@@ -249,6 +287,9 @@ const DashboardOverview = () => {
       case "Connected Banks":
         navigate("/dashboard/institutions");
         break;
+      case "Loan Applications":
+        navigate("/dashboard/loan");
+        break;
       case "Privacy Score":
         setShowPrivacyModal(true);
         break;
@@ -292,12 +333,12 @@ const DashboardOverview = () => {
       description: institutionsCount > 0 ? "Active connections" : "Connect institutions",
     },
     {
-      title: "Privacy Score",
-      value: "98%",
-      change: "+3%",
+      title: "Loan Applications",
+      value: loanApplicationsCount > 0 ? loanApplicationsCount.toString() : "0",
+      change: loanApplicationsCount > 0 ? `${loanApplicationsCount} total` : "Apply now",
       trend: "up" as const,
-      icon: Lock,
-      description: "Data protection level",
+      icon: Wallet,
+      description: loanApplicationsCount > 0 ? "Applications submitted" : "Start your application",
     },
   ];
 

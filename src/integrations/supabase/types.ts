@@ -122,6 +122,66 @@ export type Database = {
         }
         Relationships: []
       }
+      loan_applications: {
+        Row: {
+          amount: number
+          created_at: string
+          cryptographic_proof: string | null
+          decision_status: string | null
+          eligibility: string | null
+          fairness_score: number | null
+          fraud_likelihood: number | null
+          id: string
+          purpose: string | null
+          reasoning: string[] | null
+          recommended_max: number | null
+          recommended_min: number | null
+          risk_score: number | null
+          status: string
+          tenure: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          cryptographic_proof?: string | null
+          decision_status?: string | null
+          eligibility?: string | null
+          fairness_score?: number | null
+          fraud_likelihood?: number | null
+          id?: string
+          purpose?: string | null
+          reasoning?: string[] | null
+          recommended_max?: number | null
+          recommended_min?: number | null
+          risk_score?: number | null
+          status?: string
+          tenure?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          cryptographic_proof?: string | null
+          decision_status?: string | null
+          eligibility?: string | null
+          fairness_score?: number | null
+          fraud_likelihood?: number | null
+          id?: string
+          purpose?: string | null
+          reasoning?: string[] | null
+          recommended_max?: number | null
+          recommended_min?: number | null
+          risk_score?: number | null
+          status?: string
+          tenure?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
