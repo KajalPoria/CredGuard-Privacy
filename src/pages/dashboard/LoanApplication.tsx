@@ -24,7 +24,9 @@ import {
   Fingerprint,
   ShieldCheck,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  Building2,
+  Send
 } from 'lucide-react';
 
 interface LoanAssessment {
@@ -47,6 +49,8 @@ interface LoanApplication {
   decision_status: string;
   created_at: string;
   risk_score: number | null;
+  institution_name: string | null;
+  institution_country: string | null;
 }
 
 interface EncryptedInputs {
@@ -55,6 +59,23 @@ interface EncryptedInputs {
   fraudSignal: string;
   complianceProof: string;
 }
+
+interface AvailableInstitution {
+  name: string;
+  country: string;
+  type: string;
+}
+
+const availableInstitutions: AvailableInstitution[] = [
+  { name: "Global Bank UK", country: "UK", type: "bank" },
+  { name: "Deutsche Kredit", country: "Germany", type: "bank" },
+  { name: "Nordic Credit Union", country: "Sweden", type: "credit_union" },
+  { name: "FinTech Partners", country: "Singapore", type: "fintech" },
+  { name: "Swiss Finance Group", country: "Switzerland", type: "bank" },
+  { name: "Emirates Bank", country: "UAE", type: "bank" },
+  { name: "Tokyo Financial", country: "Japan", type: "bank" },
+  { name: "Banco Nacional", country: "Brazil", type: "bank" },
+];
 
 const LoanApplication = () => {
   const { user } = useAuth();
@@ -73,6 +94,7 @@ const LoanApplication = () => {
   const [processingStep, setProcessingStep] = useState('');
   const [loanHistory, setLoanHistory] = useState<LoanApplication[]>([]);
   const [currentApplicationId, setCurrentApplicationId] = useState<string | null>(null);
+  const [selectedInstitution, setSelectedInstitution] = useState<AvailableInstitution | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -205,7 +227,7 @@ const LoanApplication = () => {
       setAssessment(assessmentResult);
       setStep('result');
 
-      // Save loan application
+      // Save loan application with institution
       const { data: loanApp, error: loanError } = await supabase.from('loan_applications').insert({
         user_id: user?.id,
         amount: amount,
@@ -220,7 +242,9 @@ const LoanApplication = () => {
         fairness_score: assessmentResult.fairnessScore,
         cryptographic_proof: assessmentResult.cryptographicProof,
         reasoning: assessmentResult.reasoning,
-        decision_status: 'pending'
+        decision_status: 'pending',
+        institution_name: selectedInstitution?.name,
+        institution_country: selectedInstitution?.country
       }).select().single();
 
       if (loanApp) {
@@ -231,8 +255,8 @@ const LoanApplication = () => {
       await supabase.from('verification_history').insert({
         user_id: user?.id,
         verification_type: 'loan_assessment',
-        institution_name: 'CREDGUARD Network',
-        country: 'Global',
+        institution_name: selectedInstitution?.name || 'CREDGUARD Network',
+        country: selectedInstitution?.country || 'Global',
         status: eligibility,
         score: trustScore,
         zk_proof: assessmentResult.cryptographicProof
@@ -274,20 +298,53 @@ const LoanApplication = () => {
     setLoanPurpose('');
     setLoanTenure('');
     setCurrentApplicationId(null);
+    setSelectedInstitution(null);
   };
 
   const handleAcceptOffer = async () => {
-    if (!currentApplicationId) return;
+    if (!currentApplicationId || !selectedInstitution) return;
     
     try {
+      // Update loan application status
       await supabase
         .from('loan_applications')
         .update({ decision_status: 'accepted' })
         .eq('id', currentApplicationId);
+
+      // Add or update connected institution
+      const { data: existingInst } = await supabase
+        .from('connected_institutions')
+        .select('id')
+        .eq('user_id', user?.id)
+        .eq('institution_name', selectedInstitution.name)
+        .maybeSingle();
+
+      if (!existingInst) {
+        // Add new institution connection
+        await supabase.from('connected_institutions').insert({
+          user_id: user?.id,
+          institution_name: selectedInstitution.name,
+          country: selectedInstitution.country,
+          institution_type: selectedInstitution.type,
+          status: 'connected',
+          trust_level: 'silver',
+          verifications_count: 1
+        });
+      } else {
+        // Update existing institution
+        await supabase
+          .from('connected_institutions')
+          .update({ 
+            status: 'connected',
+            last_access_at: new Date().toISOString(),
+            verifications_count: 1
+          })
+          .eq('id', existingInst.id);
+      }
       
       toast({
         title: 'Offer Accepted',
-        description: 'Your loan application has been accepted. You will be contacted shortly.',
+        description: `Your loan has been sent to ${selectedInstitution.name}. They will contact you shortly.`,
       });
       
       fetchLoanHistory();
@@ -472,13 +529,39 @@ const LoanApplication = () => {
                 </Select>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="institution">Select Institution to Send Data *</Label>
+                <Select 
+                  value={selectedInstitution?.name || ''} 
+                  onValueChange={(value) => {
+                    const inst = availableInstitutions.find(i => i.name === value);
+                    setSelectedInstitution(inst || null);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose institution" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableInstitutions.map((inst) => (
+                      <SelectItem key={inst.name} value={inst.name}>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-primary" />
+                          <span>{inst.name}</span>
+                          <span className="text-xs text-muted-foreground">({inst.country})</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <Button 
                 onClick={performAssessment} 
                 className="w-full" 
                 size="lg"
-                disabled={!loanAmount || isProcessing}
+                disabled={!loanAmount || !selectedInstitution || isProcessing}
               >
-                <Shield className="w-4 h-4 mr-2" />
+                <Send className="w-4 h-4 mr-2" />
                 Submit for Privacy-Preserving Assessment
               </Button>
             </CardContent>
@@ -560,6 +643,12 @@ const LoanApplication = () => {
               <div className="text-center space-y-2">
                 <h3 className="text-lg font-semibold text-foreground">Processing Secure Assessment</h3>
                 <p className="text-sm text-muted-foreground">{processingStep}</p>
+                {selectedInstitution && (
+                  <p className="text-xs text-primary flex items-center justify-center gap-1">
+                    <Building2 className="w-3 h-3" />
+                    Sending to {selectedInstitution.name}
+                  </p>
+                )}
               </div>
 
               <div className="w-full max-w-md">
@@ -728,12 +817,37 @@ const LoanApplication = () => {
             </CardContent>
           </Card>
 
+          {/* Selected Institution */}
+          {selectedInstitution && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
+                      <Building2 className="w-6 h-6 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-foreground">{selectedInstitution.name}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {selectedInstitution.country} • {selectedInstitution.type.replace('_', ' ')}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="border-primary/50 text-primary">
+                    <Send className="w-3 h-3 mr-1" />
+                    Data will be sent here
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Action Buttons */}
           {assessment.eligibility !== 'rejected' && (
             <div className="flex gap-4">
               <Button onClick={handleAcceptOffer} className="flex-1 bg-emerald-600 hover:bg-emerald-700">
-                <CheckCircle className="w-4 h-4 mr-2" />
-                Accept Offer
+                <Send className="w-4 h-4 mr-2" />
+                Accept & Send to {selectedInstitution?.name}
               </Button>
               <Button onClick={handleRejectOffer} variant="outline" className="flex-1">
                 <XCircle className="w-4 h-4 mr-2" />
@@ -788,6 +902,7 @@ const LoanApplication = () => {
                     <div>
                       <p className="font-medium">{formatCurrency(loan.amount)}</p>
                       <p className="text-xs text-muted-foreground">
+                        {loan.institution_name && <span className="text-primary">{loan.institution_name} • </span>}
                         {loan.purpose ? loan.purpose.charAt(0).toUpperCase() + loan.purpose.slice(1) : 'General'} • {new Date(loan.created_at).toLocaleDateString()}
                       </p>
                     </div>
