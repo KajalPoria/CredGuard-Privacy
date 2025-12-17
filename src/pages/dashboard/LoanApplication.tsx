@@ -132,10 +132,24 @@ const LoanApplication = () => {
         .eq('user_id', user?.id)
         .maybeSingle();
 
-      if (identity && profile) {
+      // Work with identity even if profile doesn't exist - use default trust score
+      if (identity) {
+        // Calculate trust score from behavioral metrics if no profile
+        let trustScore = profile?.trust_score || 750;
+        if (!profile && identity.behavioral_metrics) {
+          const metrics = identity.behavioral_metrics as Record<string, number>;
+          const avgScore = Math.round(
+            (metrics.repayment_discipline + 
+             metrics.spending_stability + 
+             metrics.employment_consistency + 
+             metrics.income_regularity) / 4
+          );
+          trustScore = 600 + Math.round(avgScore * 2);
+        }
+
         setEncryptedInputs({
           encryptedVector: identity.encrypted_vector,
-          trustScore: profile.trust_score || 750,
+          trustScore: trustScore,
           fraudSignal: `0x${Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`,
           complianceProof: `GDPR-CCPA-FCRA-${Date.now().toString(16)}`
         });
