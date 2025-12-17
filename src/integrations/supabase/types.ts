@@ -132,6 +132,8 @@ export type Database = {
           fairness_score: number | null
           fraud_likelihood: number | null
           id: string
+          institution_country: string | null
+          institution_name: string | null
           purpose: string | null
           reasoning: string[] | null
           recommended_max: number | null
@@ -151,6 +153,8 @@ export type Database = {
           fairness_score?: number | null
           fraud_likelihood?: number | null
           id?: string
+          institution_country?: string | null
+          institution_name?: string | null
           purpose?: string | null
           reasoning?: string[] | null
           recommended_max?: number | null
@@ -170,6 +174,8 @@ export type Database = {
           fairness_score?: number | null
           fraud_likelihood?: number | null
           id?: string
+          institution_country?: string | null
+          institution_name?: string | null
           purpose?: string | null
           reasoning?: string[] | null
           recommended_max?: number | null
