@@ -57,6 +57,64 @@ const CreditIdentity = () => {
     }
   }, [user]);
 
+  // Real-time subscription for trust score updates
+  useEffect(() => {
+    if (!user) return;
+
+    const profilesChannel = supabase
+      .channel('credit-identity-profiles')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('Profile updated:', payload);
+          if (payload.new && 'trust_score' in payload.new) {
+            setTrustScore((payload.new as any).trust_score || 750);
+          }
+        }
+      )
+      .subscribe();
+
+    const identitiesChannel = supabase
+      .channel('credit-identity-identities')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'encrypted_identities',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('Identity updated:', payload);
+          if (payload.new) {
+            const newData = payload.new as any;
+            setIdentity({
+              encrypted_vector: newData.encrypted_vector,
+              zk_proof: newData.zk_proof,
+              behavioral_metrics: newData.behavioral_metrics as Record<string, number>,
+              cyborgdb_indexed: newData.cyborgdb_indexed || false,
+              cyborgdb_index_id: newData.cyborgdb_index_id,
+            });
+            if (newData.behavioral_metrics) {
+              setEditableMetrics(newData.behavioral_metrics as typeof editableMetrics);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(profilesChannel);
+      supabase.removeChannel(identitiesChannel);
+    };
+  }, [user]);
+
   const fetchIdentity = async () => {
     const { data: identityData } = await supabase
       .from("encrypted_identities")

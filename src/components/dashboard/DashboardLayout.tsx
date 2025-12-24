@@ -54,6 +54,11 @@ const DashboardLayout = () => {
   const [profile, setProfile] = useState<{ display_name: string; trust_score: number } | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] = useState({
+    loans: true,
+    verifications: true,
+    institutions: true,
+  });
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
@@ -147,6 +152,20 @@ const DashboardLayout = () => {
     setNotifications(newNotifications.slice(0, 10));
   };
 
+  // Load notification preferences from localStorage
+  useEffect(() => {
+    if (user) {
+      const saved = localStorage.getItem(`notification_prefs_${user.id}`);
+      if (saved) {
+        try {
+          setNotificationPrefs(JSON.parse(saved));
+        } catch (e) {
+          console.error('Failed to parse notification preferences');
+        }
+      }
+    }
+  }, [user]);
+
   useEffect(() => {
     if (user) {
       supabase
@@ -162,7 +181,7 @@ const DashboardLayout = () => {
     }
   }, [user]);
 
-  // Real-time subscription for notifications
+  // Real-time subscription for notifications (respects preferences)
   useEffect(() => {
     if (!user) return;
 
@@ -171,7 +190,7 @@ const DashboardLayout = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'loan_applications', filter: `user_id=eq.${user.id}` }, (payload) => {
         console.log('Loan notification:', payload);
         fetchNotifications();
-        if (payload.eventType === 'UPDATE' && payload.new) {
+        if (notificationPrefs.loans && payload.eventType === 'UPDATE' && payload.new) {
           const loan = payload.new as any;
           if (loan.decision_status === 'accepted') {
             toast({ title: "Loan Approved!", description: `Your loan of $${Number(loan.amount).toLocaleString()} has been approved.` });
@@ -184,7 +203,9 @@ const DashboardLayout = () => {
       .channel('notifications-verifications')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'verification_history', filter: `user_id=eq.${user.id}` }, () => {
         fetchNotifications();
-        toast({ title: "Verification Added", description: "A new verification has been recorded." });
+        if (notificationPrefs.verifications) {
+          toast({ title: "Verification Added", description: "A new verification has been recorded." });
+        }
       })
       .subscribe();
 
@@ -192,8 +213,10 @@ const DashboardLayout = () => {
       .channel('notifications-institutions')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'connected_institutions', filter: `user_id=eq.${user.id}` }, (payload) => {
         fetchNotifications();
-        const inst = payload.new as any;
-        toast({ title: "Institution Connected", description: `${inst.institution_name} is now connected.` });
+        if (notificationPrefs.institutions) {
+          const inst = payload.new as any;
+          toast({ title: "Institution Connected", description: `${inst.institution_name} is now connected.` });
+        }
       })
       .subscribe();
 
@@ -202,7 +225,7 @@ const DashboardLayout = () => {
       supabase.removeChannel(verificationsChannel);
       supabase.removeChannel(institutionsChannel);
     };
-  }, [user]);
+  }, [user, notificationPrefs]);
 
   const markAllAsRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
