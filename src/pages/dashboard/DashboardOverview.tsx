@@ -132,6 +132,90 @@ const DashboardOverview = () => {
     };
   }, [user]);
 
+  // Real-time subscriptions for instant updates
+  useEffect(() => {
+    if (!user) return;
+
+    // Subscribe to verification_history changes
+    const verificationsChannel = supabase
+      .channel('verifications-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'verification_history',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          console.log('Verification history changed, refreshing...');
+          fetchUserData();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to connected_institutions changes
+    const institutionsChannel = supabase
+      .channel('institutions-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'connected_institutions',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          console.log('Connected institutions changed, refreshing...');
+          fetchUserData();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to loan_applications changes
+    const loansChannel = supabase
+      .channel('loans-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'loan_applications',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          console.log('Loan applications changed, refreshing...');
+          fetchUserData();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to profiles changes (for trust score)
+    const profilesChannel = supabase
+      .channel('profiles-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          console.log('Profile changed, refreshing...');
+          fetchUserData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(verificationsChannel);
+      supabase.removeChannel(institutionsChannel);
+      supabase.removeChannel(loansChannel);
+      supabase.removeChannel(profilesChannel);
+    };
+  }, [user]);
+
   const fetchUserData = async () => {
     try {
       // Fetch profile trust score
