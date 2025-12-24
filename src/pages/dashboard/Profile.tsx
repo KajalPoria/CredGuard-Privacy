@@ -12,15 +12,24 @@ import {
   Fingerprint,
   Building2,
   History,
+  Bell,
+  Wallet,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+
+interface NotificationPreferences {
+  loans: boolean;
+  verifications: boolean;
+  institutions: boolean;
+}
 
 const Profile = () => {
   const { user } = useAuth();
@@ -39,13 +48,44 @@ const Profile = () => {
     institutions: 0,
     consents: 0,
   });
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferences>({
+    loans: true,
+    verifications: true,
+    institutions: true,
+  });
 
   useEffect(() => {
     if (user) {
       fetchProfile();
       fetchStats();
+      loadNotificationPrefs();
     }
   }, [user]);
+
+  const loadNotificationPrefs = () => {
+    const saved = localStorage.getItem(`notification_prefs_${user?.id}`);
+    if (saved) {
+      try {
+        setNotificationPrefs(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse notification preferences');
+      }
+    }
+  };
+
+  const saveNotificationPrefs = (prefs: NotificationPreferences) => {
+    localStorage.setItem(`notification_prefs_${user?.id}`, JSON.stringify(prefs));
+    setNotificationPrefs(prefs);
+    toast({
+      title: "Preferences Saved",
+      description: "Your notification preferences have been updated.",
+    });
+  };
+
+  const handlePrefChange = (key: keyof NotificationPreferences, value: boolean) => {
+    const newPrefs = { ...notificationPrefs, [key]: value };
+    saveNotificationPrefs(newPrefs);
+  };
 
   const fetchProfile = async () => {
     const { data } = await supabase
@@ -245,6 +285,63 @@ const Profile = () => {
           </motion.div>
         ))}
       </div>
+
+      {/* Notification Preferences */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+      >
+        <Card className="bg-gradient-card border-border">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bell className="w-5 h-5 text-primary" />
+              Notification Preferences
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/30">
+              <div className="flex items-center gap-3">
+                <Wallet className="w-5 h-5 text-primary" />
+                <div>
+                  <div className="font-medium text-foreground">Loan Notifications</div>
+                  <div className="text-sm text-muted-foreground">Get notified about loan approvals and updates</div>
+                </div>
+              </div>
+              <Switch
+                checked={notificationPrefs.loans}
+                onCheckedChange={(checked) => handlePrefChange('loans', checked)}
+              />
+            </div>
+            <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/30">
+              <div className="flex items-center gap-3">
+                <History className="w-5 h-5 text-primary" />
+                <div>
+                  <div className="font-medium text-foreground">Verification Notifications</div>
+                  <div className="text-sm text-muted-foreground">Get notified when verifications complete</div>
+                </div>
+              </div>
+              <Switch
+                checked={notificationPrefs.verifications}
+                onCheckedChange={(checked) => handlePrefChange('verifications', checked)}
+              />
+            </div>
+            <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/30">
+              <div className="flex items-center gap-3">
+                <Building2 className="w-5 h-5 text-primary" />
+                <div>
+                  <div className="font-medium text-foreground">Institution Notifications</div>
+                  <div className="text-sm text-muted-foreground">Get notified when institutions are connected</div>
+                </div>
+              </div>
+              <Switch
+                checked={notificationPrefs.institutions}
+                onCheckedChange={(checked) => handlePrefChange('institutions', checked)}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
 
       {/* Security Settings */}
       <Card className="bg-gradient-card border-border">
