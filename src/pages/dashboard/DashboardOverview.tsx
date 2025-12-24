@@ -109,6 +109,29 @@ const DashboardOverview = () => {
     }
   }, [user]);
 
+  // Refetch data when page becomes visible (returning from other pages)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && user) {
+        fetchUserData();
+      }
+    };
+
+    const handleFocus = () => {
+      if (user) {
+        fetchUserData();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [user]);
+
   const fetchUserData = async () => {
     try {
       // Fetch profile trust score
