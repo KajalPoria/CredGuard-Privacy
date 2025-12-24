@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,9 +20,23 @@ import {
   User,
   AlertTriangle,
   Wallet,
+  CheckCircle2,
+  Clock,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+interface Notification {
+  id: string;
+  type: 'loan' | 'verification' | 'institution' | 'consent';
+  title: string;
+  message: string;
+  status: 'success' | 'pending' | 'error';
+  time: Date;
+  read: boolean;
+}
 
 const navItems = [
   { title: "Overview", url: "/dashboard", icon: BarChart3 },
@@ -38,9 +52,100 @@ const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profile, setProfile] = useState<{ display_name: string; trust_score: number } | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const formatTimeAgo = (date: Date) => {
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / (1000 * 60));
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `${days}d ago`;
+    if (hours > 0) return `${hours}h ago`;
+    if (minutes > 0) return `${minutes}m ago`;
+    return "Just now";
+  };
+
+  const fetchNotifications = async () => {
+    if (!user) return;
+
+    // Fetch recent loan applications
+    const { data: loans } = await supabase
+      .from("loan_applications")
+      .select("id, status, decision_status, amount, institution_name, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    // Fetch recent verifications
+    const { data: verifications } = await supabase
+      .from("verification_history")
+      .select("id, verification_type, institution_name, status, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    // Fetch recent institutions
+    const { data: institutions } = await supabase
+      .from("connected_institutions")
+      .select("id, institution_name, status, connected_at")
+      .eq("user_id", user.id)
+      .order("connected_at", { ascending: false })
+      .limit(5);
+
+    const newNotifications: Notification[] = [];
+
+    loans?.forEach(loan => {
+      const status = loan.decision_status === 'accepted' ? 'success' : 
+                     loan.decision_status === 'rejected' ? 'error' : 'pending';
+      newNotifications.push({
+        id: `loan-${loan.id}`,
+        type: 'loan',
+        title: status === 'success' ? 'Loan Approved!' : 
+               status === 'error' ? 'Loan Rejected' : 'Loan Application Submitted',
+        message: `$${Number(loan.amount).toLocaleString()} ${loan.institution_name ? `to ${loan.institution_name}` : ''}`,
+        status,
+        time: new Date(loan.created_at),
+        read: false,
+      });
+    });
+
+    verifications?.forEach(ver => {
+      const status = ver.status === 'verified' || ver.status === 'approved' ? 'success' : 'pending';
+      newNotifications.push({
+        id: `ver-${ver.id}`,
+        type: 'verification',
+        title: status === 'success' ? 'Verification Complete' : 'Verification Pending',
+        message: `${ver.verification_type} with ${ver.institution_name}`,
+        status,
+        time: new Date(ver.created_at),
+        read: false,
+      });
+    });
+
+    institutions?.forEach(inst => {
+      newNotifications.push({
+        id: `inst-${inst.id}`,
+        type: 'institution',
+        title: 'Institution Connected',
+        message: `${inst.institution_name} is now connected`,
+        status: inst.status === 'active' ? 'success' : 'pending',
+        time: new Date(inst.connected_at),
+        read: false,
+      });
+    });
+
+    // Sort by time
+    newNotifications.sort((a, b) => b.time.getTime() - a.time.getTime());
+    setNotifications(newNotifications.slice(0, 10));
+  };
 
   useEffect(() => {
     if (user) {
@@ -52,8 +157,64 @@ const DashboardLayout = () => {
         .then(({ data }) => {
           if (data) setProfile(data);
         });
+      
+      fetchNotifications();
     }
   }, [user]);
+
+  // Real-time subscription for notifications
+  useEffect(() => {
+    if (!user) return;
+
+    const loansChannel = supabase
+      .channel('notifications-loans')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'loan_applications', filter: `user_id=eq.${user.id}` }, (payload) => {
+        console.log('Loan notification:', payload);
+        fetchNotifications();
+        if (payload.eventType === 'UPDATE' && payload.new) {
+          const loan = payload.new as any;
+          if (loan.decision_status === 'accepted') {
+            toast({ title: "Loan Approved!", description: `Your loan of $${Number(loan.amount).toLocaleString()} has been approved.` });
+          }
+        }
+      })
+      .subscribe();
+
+    const verificationsChannel = supabase
+      .channel('notifications-verifications')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'verification_history', filter: `user_id=eq.${user.id}` }, () => {
+        fetchNotifications();
+        toast({ title: "Verification Added", description: "A new verification has been recorded." });
+      })
+      .subscribe();
+
+    const institutionsChannel = supabase
+      .channel('notifications-institutions')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'connected_institutions', filter: `user_id=eq.${user.id}` }, (payload) => {
+        fetchNotifications();
+        const inst = payload.new as any;
+        toast({ title: "Institution Connected", description: `${inst.institution_name} is now connected.` });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(loansChannel);
+      supabase.removeChannel(verificationsChannel);
+      supabase.removeChannel(institutionsChannel);
+    };
+  }, [user]);
+
+  const markAllAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'success': return <CheckCircle2 className="w-4 h-4 text-success" />;
+      case 'error': return <XCircle className="w-4 h-4 text-destructive" />;
+      default: return <Clock className="w-4 h-4 text-warning" />;
+    }
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -212,10 +373,99 @@ const DashboardLayout = () => {
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
-            </Button>
+            <div className="relative">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="relative"
+                onClick={() => setShowNotifications(!showNotifications)}
+              >
+                <Bell className="w-5 h-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary rounded-full text-xs flex items-center justify-center text-primary-foreground font-medium">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </Button>
+
+              {/* Notifications Dropdown */}
+              <AnimatePresence>
+                {showNotifications && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowNotifications(false)} 
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute right-0 top-12 w-80 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden"
+                    >
+                      <div className="p-4 border-b border-border flex items-center justify-between">
+                        <h3 className="font-semibold text-foreground">Notifications</h3>
+                        {unreadCount > 0 && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                            onClick={markAllAsRead}
+                          >
+                            Mark all read
+                          </Button>
+                        )}
+                      </div>
+                      <ScrollArea className="max-h-80">
+                        {notifications.length > 0 ? (
+                          <div className="divide-y divide-border">
+                            {notifications.map((notification) => (
+                              <div
+                                key={notification.id}
+                                className={`p-4 hover:bg-secondary/50 transition-colors cursor-pointer ${
+                                  !notification.read ? 'bg-primary/5' : ''
+                                }`}
+                                onClick={() => {
+                                  if (notification.type === 'loan') navigate('/dashboard/loan');
+                                  if (notification.type === 'verification') navigate('/dashboard/history');
+                                  if (notification.type === 'institution') navigate('/dashboard/institutions');
+                                  setShowNotifications(false);
+                                }}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <div className="mt-0.5">
+                                    {getStatusIcon(notification.status)}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-foreground truncate">
+                                      {notification.title}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {notification.message}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground/70 mt-1">
+                                      {formatTimeAgo(notification.time)}
+                                    </p>
+                                  </div>
+                                  {!notification.read && (
+                                    <div className="w-2 h-2 bg-primary rounded-full flex-shrink-0 mt-2" />
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="p-8 text-center">
+                            <Bell className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                            <p className="text-sm text-muted-foreground">No notifications yet</p>
+                          </div>
+                        )}
+                      </ScrollArea>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
             <NavLink
               to="/dashboard/profile"
               className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-success flex items-center justify-center cursor-pointer hover:scale-105 transition-transform"
