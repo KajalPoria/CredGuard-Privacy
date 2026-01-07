@@ -17,6 +17,7 @@ import {
   Save,
   X,
   Loader2,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 interface EncryptedIdentity {
   encrypted_vector: string;
@@ -32,6 +34,13 @@ interface EncryptedIdentity {
   behavioral_metrics: Record<string, number>;
   cyborgdb_indexed: boolean;
   cyborgdb_index_id: string | null;
+}
+
+interface TrustScoreHistoryItem {
+  id: string;
+  score: number;
+  change_reason: string | null;
+  created_at: string;
 }
 
 const CreditIdentity = () => {
@@ -49,11 +58,13 @@ const CreditIdentity = () => {
     employment_consistency: 90,
     income_regularity: 82,
   });
+  const [trustHistory, setTrustHistory] = useState<TrustScoreHistoryItem[]>([]);
   const { user, session } = useAuth();
 
   useEffect(() => {
     if (user) {
       fetchIdentity();
+      fetchTrustHistory();
     }
   }, [user]);
 
@@ -146,6 +157,19 @@ const CreditIdentity = () => {
     }
   };
 
+  const fetchTrustHistory = async () => {
+    const { data } = await supabase
+      .from("trust_score_history")
+      .select("*")
+      .eq("user_id", user?.id)
+      .order("created_at", { ascending: true })
+      .limit(20);
+
+    if (data) {
+      setTrustHistory(data);
+    }
+  };
+
   const handleOpenMetricsModal = () => {
     if (identity?.behavioral_metrics) {
       setEditableMetrics(identity.behavioral_metrics as typeof editableMetrics);
@@ -179,6 +203,9 @@ const CreditIdentity = () => {
 
       setTrustScore(newTrustScore);
       setIdentity(prev => prev ? { ...prev, behavioral_metrics: editableMetrics } : null);
+      
+      // Refresh trust history to show the new entry
+      await fetchTrustHistory();
       
       toast({
         title: "Metrics Updated",
@@ -459,6 +486,87 @@ const CreditIdentity = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Trust Score History Chart */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+      >
+        <Card className="bg-gradient-card border-border">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-primary" />
+              Trust Score History
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {trustHistory.length > 0 ? (
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={trustHistory.map((item) => ({
+                      date: new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                      score: item.score,
+                      reason: item.change_reason || 'Score update',
+                    }))}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis 
+                      dataKey="date" 
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={12}
+                    />
+                    <YAxis 
+                      domain={[600, 850]}
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={12}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px',
+                        color: 'hsl(var(--foreground))',
+                      }}
+                      formatter={(value: number, name: string, props: any) => [
+                        <span key="value" className="font-bold text-primary">{value}</span>,
+                        'Trust Score'
+                      ]}
+                      labelFormatter={(label, payload) => {
+                        const item = payload?.[0]?.payload;
+                        return (
+                          <div>
+                            <div className="font-medium">{label}</div>
+                            {item?.reason && (
+                              <div className="text-xs text-muted-foreground">{item.reason}</div>
+                            )}
+                          </div>
+                        );
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="score"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={3}
+                      dot={{ fill: 'hsl(var(--primary))', strokeWidth: 2, r: 4 }}
+                      activeDot={{ r: 6, fill: 'hsl(var(--primary))', stroke: 'hsl(var(--background))', strokeWidth: 2 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-[200px] text-center">
+                <TrendingUp className="w-12 h-12 text-muted-foreground/50 mb-3" />
+                <p className="text-muted-foreground">No trust score history yet</p>
+                <p className="text-sm text-muted-foreground/70">Update your behavioral metrics to start tracking</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
 
       {/* Edit Metrics Modal */}
       <AnimatePresence>
