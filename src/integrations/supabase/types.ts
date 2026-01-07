@@ -218,6 +218,33 @@ export type Database = {
         }
         Relationships: []
       }
+      trust_score_history: {
+        Row: {
+          behavioral_metrics: Json | null
+          change_reason: string | null
+          created_at: string
+          id: string
+          score: number
+          user_id: string
+        }
+        Insert: {
+          behavioral_metrics?: Json | null
+          change_reason?: string | null
+          created_at?: string
+          id?: string
+          score: number
+          user_id: string
+        }
+        Update: {
+          behavioral_metrics?: Json | null
+          change_reason?: string | null
+          created_at?: string
+          id?: string
+          score?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       verification_history: {
         Row: {
           country: string

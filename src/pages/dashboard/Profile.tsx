@@ -14,6 +14,7 @@ import {
   History,
   Bell,
   Wallet,
+  Send,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,13 @@ interface NotificationPreferences {
   loans: boolean;
   verifications: boolean;
   institutions: boolean;
+}
+
+interface EmailNotificationPreferences {
+  emailEnabled: boolean;
+  emailLoans: boolean;
+  emailVerifications: boolean;
+  emailInstitutions: boolean;
 }
 
 const Profile = () => {
@@ -53,12 +61,19 @@ const Profile = () => {
     verifications: true,
     institutions: true,
   });
+  const [emailPrefs, setEmailPrefs] = useState<EmailNotificationPreferences>({
+    emailEnabled: false,
+    emailLoans: true,
+    emailVerifications: true,
+    emailInstitutions: true,
+  });
 
   useEffect(() => {
     if (user) {
       fetchProfile();
       fetchStats();
       loadNotificationPrefs();
+      loadEmailPrefs();
     }
   }, [user]);
 
@@ -73,6 +88,17 @@ const Profile = () => {
     }
   };
 
+  const loadEmailPrefs = () => {
+    const saved = localStorage.getItem(`email_prefs_${user?.id}`);
+    if (saved) {
+      try {
+        setEmailPrefs(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse email preferences');
+      }
+    }
+  };
+
   const saveNotificationPrefs = (prefs: NotificationPreferences) => {
     localStorage.setItem(`notification_prefs_${user?.id}`, JSON.stringify(prefs));
     setNotificationPrefs(prefs);
@@ -82,9 +108,23 @@ const Profile = () => {
     });
   };
 
+  const saveEmailPrefs = (prefs: EmailNotificationPreferences) => {
+    localStorage.setItem(`email_prefs_${user?.id}`, JSON.stringify(prefs));
+    setEmailPrefs(prefs);
+    toast({
+      title: "Email Preferences Saved",
+      description: "Your email notification preferences have been updated.",
+    });
+  };
+
   const handlePrefChange = (key: keyof NotificationPreferences, value: boolean) => {
     const newPrefs = { ...notificationPrefs, [key]: value };
     saveNotificationPrefs(newPrefs);
+  };
+
+  const handleEmailPrefChange = (key: keyof EmailNotificationPreferences, value: boolean) => {
+    const newPrefs = { ...emailPrefs, [key]: value };
+    saveEmailPrefs(newPrefs);
   };
 
   const fetchProfile = async () => {
@@ -296,7 +336,7 @@ const Profile = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Bell className="w-5 h-5 text-primary" />
-              Notification Preferences
+              In-App Notification Preferences
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -338,6 +378,82 @@ const Profile = () => {
                 checked={notificationPrefs.institutions}
                 onCheckedChange={(checked) => handlePrefChange('institutions', checked)}
               />
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Email Notification Preferences */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+      >
+        <Card className="bg-gradient-card border-border">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Send className="w-5 h-5 text-primary" />
+              Email Notification Preferences
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between p-4 rounded-xl bg-primary/10 border border-primary/20">
+              <div className="flex items-center gap-3">
+                <Mail className="w-5 h-5 text-primary" />
+                <div>
+                  <div className="font-medium text-foreground">Enable Email Notifications</div>
+                  <div className="text-sm text-muted-foreground">Receive important updates via email</div>
+                </div>
+              </div>
+              <Switch
+                checked={emailPrefs.emailEnabled}
+                onCheckedChange={(checked) => handleEmailPrefChange('emailEnabled', checked)}
+              />
+            </div>
+            
+            <div className={`space-y-4 transition-opacity ${emailPrefs.emailEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+              <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/30">
+                <div className="flex items-center gap-3">
+                  <Wallet className="w-5 h-5 text-primary" />
+                  <div>
+                    <div className="font-medium text-foreground">Email Loan Updates</div>
+                    <div className="text-sm text-muted-foreground">Receive emails about loan approvals and status changes</div>
+                  </div>
+                </div>
+                <Switch
+                  checked={emailPrefs.emailLoans}
+                  onCheckedChange={(checked) => handleEmailPrefChange('emailLoans', checked)}
+                  disabled={!emailPrefs.emailEnabled}
+                />
+              </div>
+              <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/30">
+                <div className="flex items-center gap-3">
+                  <History className="w-5 h-5 text-primary" />
+                  <div>
+                    <div className="font-medium text-foreground">Email Verification Alerts</div>
+                    <div className="text-sm text-muted-foreground">Receive emails when verifications are completed</div>
+                  </div>
+                </div>
+                <Switch
+                  checked={emailPrefs.emailVerifications}
+                  onCheckedChange={(checked) => handleEmailPrefChange('emailVerifications', checked)}
+                  disabled={!emailPrefs.emailEnabled}
+                />
+              </div>
+              <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/30">
+                <div className="flex items-center gap-3">
+                  <Building2 className="w-5 h-5 text-primary" />
+                  <div>
+                    <div className="font-medium text-foreground">Email Institution Updates</div>
+                    <div className="text-sm text-muted-foreground">Receive emails when institutions connect or disconnect</div>
+                  </div>
+                </div>
+                <Switch
+                  checked={emailPrefs.emailInstitutions}
+                  onCheckedChange={(checked) => handleEmailPrefChange('emailInstitutions', checked)}
+                  disabled={!emailPrefs.emailEnabled}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
